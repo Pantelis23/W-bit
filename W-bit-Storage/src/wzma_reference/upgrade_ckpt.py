@@ -15,11 +15,11 @@ import shutil
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from src.agi.memory.wzma_embedder.tokenizer import (
+from .tokenizer import (
     WZMATokenizer,
     CURRENT_FINGERPRINT_VERSION,
 )
-from src.agi.memory.wzma_embedder.model import WZMAConfig
+from .model import WZMAConfig
 
 def upgrade_checkpoint(args):
     print(f"Upgrading checkpoint: {args.ckpt_path}")

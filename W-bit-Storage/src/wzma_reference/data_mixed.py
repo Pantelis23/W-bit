@@ -9,7 +9,7 @@ import random
 import os
 import ast
 from torch.utils.data import Dataset
-from src.agi.memory.wzma_embedder.data import SyntheticTextDataset
+from .data import SyntheticTextDataset
 
 # Reuse the robust extraction logic
 def get_code_body_clean(source, node):
