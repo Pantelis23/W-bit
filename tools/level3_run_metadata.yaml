@@ -1,0 +1,31 @@
+# W-bit Level 3: Bench Metadata Configuration
+# This file anchors static test parameters and constants that apply to the hardware run
+# and are used by the fail parser and plotter.
+
+bench_session:
+  id: "bench_run_001_initial_validation"
+  date: "2026-03-16"
+  hardware_revision: "v1.0"
+  tile_geometry: "64x64"
+
+physical_constants:
+  # The physical capacitive leak time constant in milliseconds
+  tau_m_ms: 1.0
+  # Burst capture duration is computed as 10,000 * tau_m
+  burst_capture_duration_ms: 10000.0
+
+sensor_calibration:
+  # Define how True_Noise(C63) is sourced. 
+  # E.g., 'external_oscilloscope', 'on_die_adc_tap', or 'simulated'
+  true_noise_source: "external_oscilloscope_ch2"
+  
+  # Define how Known_External_Load is sourced.
+  # E.g., 'peltier_setpoint_delta', 'chamber_ambient'
+  known_external_load_source: "peltier_setpoint_delta"
+
+test_parameters:
+  # Thresholds for automatic fail parsing
+  max_allowable_thermal_runaway_c: 15.0
+  max_allowable_spatial_delta_c: 10.0
+  max_allowable_n_est_error_pct: -15.0
+  max_allowable_energy_fj_op: 1000.0

@@ -1,0 +1,1627 @@
+› You are WBIT_ENGINEER, an AI collaborator focused ONLY on the W-bit project
+  (typically in `/home/pantelis/W-bit`).
+
+  High-level vision for W-bit
+  - W-bit is an experimental logic substrate based on multi-level states instead of plain 0/1.
+  - It explores how:
+    - increasing the number of stable states (R levels),
+    - adding noise,
+    - and adapting R per task / condition
+    affect:
+    - success rate,
+    - steps to converge,
+    - routing cost proxies (RCP),
+    - and robustness.
+  - It is a **measurement platform**, not a toy: everything should be reproducible, CSV-logged, and easy to analyze and plot.
+
+  Core concepts in this repo
+  - Modes:
+    - `wbit`  → multi-level logic with R states.
+    - `binary` → comparison baselines, but implemented carefully:
+      - default: “binary_quantized” with R>2 allowed and wbit-like dynamics, just evaluated as binary.
+      - strict ablation: `--binary_force_R2` gives true 2-state behavior.
+    - `adaptive` → chooses an effective n and R_effective = 2*n+1 per trial/sigma.
+  - Key fields/ideas:
+    - `R`           → configured R.
+    - `R_effective` → actually used R for this trial / row.
+    - `n_effective` → (R_effective-1)/2 for adaptive / effective views.
+    - `mode`        → wbit / binary / adaptive.
+    - `mode_variant`→ e.g. `wbit`, `binary_quantized`, `binary_strict_R2`, `adaptive_heuristic_n3`.
+    - `net_mode`    → the actual dynamics used inside the network when needed.
+    - RCP           → must always be computed from steps_taken, never steps_converged.
+
+  Project layout (mental map)
+  - Orchestrators:
+    - `run_phase1.py`, `run_phase2.py`
+  - Experiments:
+    - `experiments/exp_a_router_sweep.py`
+    - `experiments/exp_b_noise_breakdown.py`
+    - `experiments/exp_b_weight_noise_grid.py`
+    - `experiments/exp_c_learning_search.py`
+  - Analysis & plots:
+    - `analysis/phase2_*.py`
+    - `analysis/plot_phase2_*.py`
+  - Core logic:
+    - `src/wdit/*.py`
+  - Tests:
+    - `tests/*.py` (including `test_no_pandas_imports.py`, smoke tests, etc.)
+
+  Hard constraints (treat as invariants)
+  - **No pandas anywhere.**
+  - Phase 1 behavior must remain unchanged unless the task explicitly asks to touch it.
+  - CSV compatibility:
+    - Do NOT rename or remove existing columns if it can be avoided.
+    - Prefer appending new columns (e.g. `mode`, `mode_variant`, `n_effective`, `R_effective`, `net_mode`).
+  - RCP:
+    - Always derived from steps actually taken, not “steps_converged”.
+  - Binary semantics:
+    - Default: “binary_quantized”:
+      - Uses R_effective >= 2 (often >2).
+      - Can route through wbit-style dynamics internally when R>2.
+    - Strict binary ablation:
+      - Only when `--binary_force_R2` is passed.
+      - Then R_effective = 2, n_effective = 1, net_mode='binary'.
+  - Adaptive semantics:
+    - Per-sigma or per-condition heuristic chooses n_effective (clamped by `adaptive_max_n`).
+    - Then sets R_effective = 2*n_effective + 1.
+    - Must log `mode_variant`, `n_effective`, and `R_effective` where relevant.
+
+  Definition of Done (for most tasks)
+  Unless the user says otherwise, assume a task is “done” only when all of these succeed:
+
+  1) Syntax / imports sanity
+     `python3 -m py_compile run_phase1.py run_phase2.py experiments/*.py analysis/*.py src/wdit/*.py tests/*.py`
+
+  2) No pandas
+     `python3 tests/test_no_pandas_imports.py`
+
+  3) Phase 1 smoke
+     `rm -rf results && python3 tests/smoke_phase1_8.py`
+
+  4) Phase 2 scaffold
+     `rm -rf results && python3 tests/smoke_phase2_scaffold.py`
+
+  5) Phase 2 ExpB grid (when relevant)
+     `rm -rf results && python3 run_phase2.py --smoke --run_expB_grid`
+     `rm -rf results && python3 run_phase2.py --smoke --run_expB_grid --binary_force_R2`
+
+  If any of these fail, you should treat it as a bug you must track down and fix, instead of just documenting the failure.
+
+  Coding & editing style
+  - Prefer minimal, surgical diffs rooted in the existing design.
+  - Match current style:
+    - argparse patterns,
+    - print/log messages,
+    - CSV writing with `csv.writer`,
+    - small helper functions.
+  - When adding CLI args:
+    - Keep names clear and explicit (e.g. `--adaptive_max_n`, `--sigma_min`, `--binary_force_R2`, `--debug_trial`,
+  `--debug_effective`).
+    - Defaults must preserve current behavior as much as possible.
+  - When logging to CSV:
+    - Preserve header order.
+    - Append new columns at the end.
+    - Keep semantics stable; don’t silently repurpose existing columns.
+
+  Debug / inspection behavior
+  - Before editing, scan the relevant files instead of guessing.
+  - For weird behavior:
+    - Use debug flags (`--debug_metrics`, `--debug_trial`, `--debug_effective`) to print:
+      - mode, mode_variant, net_mode
+      - sigma, weight_scale
+      - R, R_effective, n_effective
+      - success, steps_taken, rcp
+      - key outputs and expected outputs when applicable.
+  - When a test or smoke script fails:
+    - Quote the key error.
+    - Trace back which mode / R / CSV fields are involved.
+    - Fix the underlying logic, not just suppress errors.
+
+  How to respond to the user
+  For each task the user gives you:
+
+  1. Plan
+     - 3–6 bullet points describing:
+       - which files you will touch,
+       - what you intend to change,
+       - how it relates to modes/R_effective/CSV outputs.
+
+  2. Edits
+     - Per file:
+       - Path.
+       - Short description of the change.
+       - Key snippets or diff-style chunks (not full files).
+
+  3. Commands
+     - List the exact shell commands the user should run to:
+       - recompile / type check,
+       - run the appropriate smoke tests or analysis scripts,
+       - verify behavior.
+
+  4. Expected behavior
+     - For each command, explain briefly what you expect:
+       - “All pass”
+       - or “Strict R=2 ablation likely has low/zero success; this is expected and should be interpreted as a baseline.”
+
+  5. Notes / future hooks
+     - Mention anything subtle about semantics, assumptions, or possible follow-ups that matter for W-bit as a long-term project.
+
+  You do NOT design other systems here. You are dedicated to making W-bit a clean, sharp platform for studying multi-level logic,
+  noise robustness, and adaptive R behavior through small, reproducible experiments.
+
+  The user will now provide a concrete task. First, restate the task in your own words to confirm understanding, then apply the
+  workflow above.
+
+
+• No concrete task was provided yet, so I'm standing by and ready for the user to specify the task.
+
+─ Worked for 2s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Got it—ready to help on W-bit. Please share the concrete task, and I’ll restate it and proceed with plan/edits/commands/expected
+  behavior/notes as requested.
+
+
+› Your task to transend this prject to another level and also confirm the results from the expiraments
+
+
+• I need a bit more detail to help effectively. Could you clarify what “transcend this project to another level” means in concrete
+  terms? Examples that would help:
+
+  - Specific experiments or modes you want added or extended.
+  - Results you want confirmed: which scripts, configs, or CSV outputs should be re-run and checked?
+  - Any particular bugs, behaviors, or metrics you’re concerned about.
+
+  Once you specify the goal (e.g., “rerun Phase 2 ExpB grid and report success/rcp” or “add an adaptive mode tweak and log new
+  columns”), I’ll restate it and proceed with the plan/edits/commands/expected behavior/notes structure.
+
+
+› 1. W-bit as a quantization / robustness lab for real networks
+
+  Right now: W-bit plays with synthetic tasks and synthetic weights.
+
+  Next level: treat it as a microscope on real learned weights.
+
+  Concept:
+
+  Take small subnets from a real model (MLP blocks, attention projections, etc.).
+
+  Quantize their weights into W-bit states (R levels) with your w-bit rules.
+
+  Push real activation distributions through them.
+
+  Measure:
+
+  accuracy degradation,
+
+  robustness to noise,
+
+  RCP / steps as a compute cost proxy.
+
+  Why it’s a level up
+
+  You stop answering “What happens in this toy?” and start answering:
+
+  “Given weights that actually solve real tasks, what does extra R buy me vs binary?”
+
+  You get plots like:
+
+  quality vs R,
+
+  robustness vs R,
+
+  RCP vs R,
+  and can find sweet spots where W-bit dominates binary.
+
+  MVP sketch
+
+  Define a simple interface like:
+
+  def wbit_eval_layer(W, x_batch, mode, R, sigma, trials) -> dict:
+      # quantize W to W-bit, run exp, return success/rcp/loss stats
+
+
+  Feed it:
+
+  W from a small trained MLP (even MNIST / tiny transformer).
+
+  x_batch sampled from its training/validation data.
+
+  Log CSV with columns:
+
+  layer_name, mode, R, sigma, success_rate, loss_delta, avg_rcp, n_effective, R_effective, mode_variant.
+
+  Plot:
+
+  loss_delta vs R at fixed sigma,
+
+  robustness curves vs sigma for different R.
+
+  2. Turn Phase 2 into a real “phase diagram” of W-bit
+
+  Right now: you have nice sweeps, but they’re still “experiment reports”.
+
+  Next level: treat W-bit like condensed-matter / stat-phys:
+
+  Axes: (R_effective, sigma, density, layout) → phases:
+
+  “Reliable routing”
+
+  “Meta-stable but slow”
+
+  “Chaotic / fail”
+
+  Tasks
+
+  Expand grids:
+
+  For a fixed experiment (say Phase 2 ExpB grid), sweep:
+
+  R_effective across a few values (3,5,7,9,11…),
+
+  sigma range,
+
+  maybe 2–3 densities.
+
+  Define phase labels using thresholds:
+
+  e.g. success_rate ≥ 0.9 = “good phase”
+
+  success_rate in [0.1, 0.9) = “edge”
+
+  < 0.1 = “fail”
+
+  Emit a phase_diagram.csv with:
+
+  R_effective, sigma, density, phase_label, success_rate, avg_rcp.
+
+  Plot:
+
+  heatmaps or contour lines R vs sigma, colored by phase label.
+
+  Why it matters
+
+  You’ll be able to say:
+
+  “At these noise levels, you must go beyond binary; W-bit with R≈5–7 is the robust regime.”
+
+  That’s a story you can sell to yourself, to Aeternum, to future hardware investors.
+
+  3. Make adaptive actually intelligent (policy search)
+
+  Current adaptive heuristic is hand-coded and simple (sigma thresholds → n).
+
+  Next level: treat n_effective policy as a learned controller.
+
+  Idea
+
+  Parameterize policy: n_effective = f(sigma, weight_scale, maybe history; θ).
+
+  Define objective:
+
+  high success_rate, low RCP, low average R_effective.
+
+  Run a small optimizer / search over θ:
+
+  could be brute force over a small grid for now.
+
+  MVP
+
+  Define a tiny policy space:
+
+  threshold sigma_t:
+
+  if sigma < sigma_t → n=1
+
+  else n=2 or 3.
+
+  For each policy:
+
+  run a reduced ExpB grid (few sigmas, weight scales),
+
+  compute a scalar score:
+
+  score = success_rate_mean - α * avg_R_effective - β * avg_rcp_normalized
+
+
+  Pick best policy, log it as adaptive_policy_v1.
+
+  Why it’s a step up
+
+  Adaptive stops being “some heuristic you wrote at 2am” and becomes “the best found policy under a defined cost function”.
+
+  You can later plug in more features (local signal quality, early failure signals, etc.).
+  4. Repository evolution: from scripts to a “W-bit lab” library
+
+  Right now: it’s a good script zoo.
+
+  Next level: turn it into a clean lab toolkit:
+
+  wbit_core/ – core types, network construction, stepping.
+
+  wbit_experiments/ – exp_A, exp_B, exp_C as thin wrappers.
+
+  wbit_analysis/ – analysis helpers reusable across new experiments.
+
+  Mini roadmap
+
+  Extract a minimal wbit.core module:
+
+  mode, R_effective, net_mode, noise, etc.
+
+  Remove duplicated logic (effective R, mode_variant) from individual scripts and centralize it.
+  This doesn’t give new science, but it makes all the above extensions less painful.
+
+  5. Prioritized “transcend” plan
+
+
+  Phase diagram for ExpB
+  Adaptive policy search v1
+
+  Grid-search simple threshold policies over sigma, log best.
+  Add derived energy/area metrics in analysis and re-plot.
+
+  Refactor into W-bit lab
+
+
+• Explored
+  └ List ls
+
+
+• Explored
+  └ List src
+    List wdit
+
+• Explored
+  └ Read analog_network.py
+
+• Explored
+  └ Read run_phase2.py
+
+• I'm considering implementing a minimal "Quantization lab MVP" focusing on evaluating real weights with a new layer eval function
+  and an experiment script, plus potentially extending existing experiment outputs for phase summaries; this approach delivers a
+  safe, incremental starting point without breaking existing tests.
+
+• Explored
+  └ Read exp_b_weight_noise_grid.py
+
+• I'm considering adding a CLI option to sweep multiple R values in the existing grid script to produce aggregated phase diagram
+  data without pandas, possibly extending run_grid_sweep with loops while ensuring tests relying on default single-R behavior remain
+  intact.
+
+• Explored
+  └ Search exp_b_weight_noise_grid
+
+• I'll keep default argument behavior unchanged to avoid breaking tests and propose splitting work into phases, starting with
+  scaffolding quantization analysis and phase diagram. For quantization, I'll consider a new module with an evaluation function that
+  integrates existing quantization schemes.
+
+• Explored
+  └ Read exp_b_noise_breakdown.py
+
+• I'm outlining a focused plan to implement a phase diagram generator for ExpB with optional R sweeps via new CLI flags and a
+  quantization lab scaffold for layer evaluation, while ensuring defaults preserve existing behavior and tests remain unaffected.
+
+• Explored
+  └ Read requirements.txt
+
+• A minimal quantization lab function and CLI script will be added first, followed by extending an existing experiment for phase
+  diagram output and creating an adaptive policy search script; I'll use update_plan to track these multi-step tasks.
+
+• Updated Plan
+  └ Working on quantization lab MVP + phase diagram extension + adaptive policy search scaffold while keeping defaults unchanged.
+    □ Add wbit_eval_layer helper + CLI runner to quantize real layer weights, push activation batches, and log CSV with mode/
+      R_effective stats.
+    □ Extend ExpB grid to sweep multiple R values and emit phase_diagram.csv with phase labels + success/rcp summaries without
+      breaking existing defaults/tests.
+    □ Add adaptive policy search script to grid-search simple sigma threshold policies over n_effective and report best policy with
+      metrics.
+
+• The plan defines a new module for quantizing weights, applying noisy layers, and computing success rates vs baseline outputs, with
+  optional CSV logging and CLI support accepting real or synthetic data. It details quantization schemes, noise application, trial
+  aggregation, and RCP metric calculation while carefully avoiding mandatory numpy imports by lazy importing. Next is implementing
+  this as a new file with core functions and CLI script following this design.
+
+• Added ~/W-bit/src/wdit/quantization_lab.py (+228 -0)
+      1 +import math
+      2 +import random
+      3 +from typing import Iterable, List, Sequence, Tuple
+      4 +
+      5 +
+      6 +def _to_list_vector(x: Sequence[float]) -> List[float]:
+      7 +    """Convert any sequence / numpy array into a plain Python list of floats."""
+      8 +    try:
+      9 +        if hasattr(x, "tolist"):
+     10 +            return list(x.tolist())
+     11 +    except Exception:
+     12 +        pass
+     13 +    return [float(v) for v in x]
+     14 +
+     15 +
+     16 +def _to_list_matrix(W: Sequence[Sequence[float]]) -> List[List[float]]:
+     17 +    """Convert a matrix-like container to list of lists."""
+     18 +    try:
+     19 +        if hasattr(W, "tolist"):
+     20 +            W = W.tolist()
+     21 +    except Exception:
+     22 +        pass
+     23 +    return [ _to_list_vector(row) for row in W ]
+     24 +
+     25 +
+     26 +def _argmax(values: Sequence[float]) -> int:
+     27 +    """Return the index of the maximum value."""
+     28 +    best_idx = 0
+     29 +    best_val = values[0]
+     30 +    for idx in range(1, len(values)):
+     31 +        if values[idx] > best_val:
+     32 +            best_val = values[idx]
+     33 +            best_idx = idx
+     34 +    return best_idx
+     35 +
+     36 +
+     37 +def _matmul(W: List[List[float]], x: List[float]) -> List[float]:
+     38 +    """Simple matrix-vector multiply."""
+     39 +    outputs = []
+     40 +    for row in W:
+     41 +        acc = 0.0
+     42 +        for w_ij, x_j in zip(row, x):
+     43 +            acc += w_ij * x_j
+     44 +        outputs.append(acc)
+     45 +    return outputs
+     46 +
+     47 +
+     48 +def _mean_squared_error(a: List[List[float]], b: List[List[float]]) -> float:
+     49 +    """Mean squared error between two batches of vectors."""
+     50 +    total = 0.0
+     51 +    count = 0
+     52 +    for va, vb in zip(a, b):
+     53 +        for xa, xb in zip(va, vb):
+     54 +            diff = xa - xb
+     55 +            total += diff * diff
+     56 +            count += 1
+     57 +    if count == 0:
+     58 +        return 0.0
+     59 +    return total / count
+     60 +
+     61 +
+     62 +def quantize_weights(W: Sequence[Sequence[float]], R: int) -> Tuple[List[List[float]], List[float]]:
+     63 +    """
+     64 +    Quantize weights into R evenly spaced levels between -max_abs and +max_abs.
+     65 +
+     66 +    Args:
+     67 +        W: 2D weight matrix.
+     68 +        R: number of discrete states.
+     69 +
+     70 +    Returns:
+     71 +        (quantized_weights, levels)
+     72 +    """
+     73 +    if R < 2:
+     74 +        raise ValueError("R must be >= 2 for quantization")
+     75 +
+     76 +    W_list = _to_list_matrix(W)
+     77 +    max_abs = 0.0
+     78 +    for row in W_list:
+     79 +        for w in row:
+     80 +            max_abs = max(max_abs, abs(w))
+     81 +    if max_abs == 0.0:
+     82 +        max_abs = 1e-6
+     83 +
+     84 +    step = (2 * max_abs) / (R - 1)
+     85 +    levels = [(-max_abs + i * step) for i in range(R)]
+     86 +
+     87 +    def snap(value: float) -> float:
+     88 +        best = levels[0]
+     89 +        best_dist = abs(value - best)
+     90 +        for lvl in levels[1:]:
+     91 +            dist = abs(value - lvl)
+     92 +            if dist < best_dist:
+     93 +                best = lvl
+     94 +                best_dist = dist
+     95 +        return best
+     96 +
+     97 +    quantized = []
+     98 +    for row in W_list:
+     99 +        quantized.append([snap(w) for w in row])
+    100 +
+    101 +    return quantized, levels
+    102 +
+    103 +
+    104 +def _add_weight_noise(W: List[List[float]], sigma: float) -> List[List[float]]:
+    105 +    """Add Gaussian noise to each weight."""
+    106 +    if sigma <= 0:
+    107 +        return [list(row) for row in W]
+    108 +    noisy = []
+    109 +    for row in W:
+    110 +        noisy.append([w + random.gauss(0.0, sigma) for w in row])
+    111 +    return noisy
+    112 +
+    113 +
+    114 +def _forward_batch(W: List[List[float]], x_batch: List[List[float]]) -> Tuple[List[List[float]], List[int]]:
+    115 +    """Forward a batch through a linear layer."""
+    116 +    outputs = []
+    117 +    preds = []
+    118 +    for x in x_batch:
+    119 +        out_vec = _matmul(W, x)
+    120 +        outputs.append(out_vec)
+    121 +        preds.append(_argmax(out_vec))
+    122 +    return outputs, preds
+    123 +
+    124 +
+    125 +def resolve_effective_params(mode: str, base_R: int, sigma: float, binary_force_R2: bool = False, adaptive_max_n: int = None
+         ) -> Tuple[int, int, str, str]:
+    126 +    """
+    127 +    Mirror the repo's mode/effective parameter logic for layer evaluations.
+    128 +    Returns (R_effective, n_effective, mode_variant, net_mode).
+    129 +    """
+    130 +    if mode == 'binary':
+    131 +        r_eff = 2 if binary_force_R2 else base_R
+    132 +        n_eff = max(1, (r_eff - 1) // 2)
+    133 +        variant = 'binary_strict_R2' if binary_force_R2 else 'binary_quantized'
+    134 +        net_mode = 'binary' if r_eff == 2 else 'wbit'
+    135 +        return r_eff, n_eff, variant, net_mode
+    136 +
+    137 +    if mode == 'adaptive':
+    138 +        score = 0
+    139 +        if sigma is not None and sigma >= 0.5:
+    140 +            score += 1
+    141 +        n = 1 if score <= 0 else 2 if score == 1 else 3 if score == 2 else 4
+    142 +        max_n = adaptive_max_n if adaptive_max_n is not None else max(1, (base_R - 1) // 2)
+    143 +        n = max(1, min(n, max_n))
+    144 +        r_eff = max(3, 2 * n + 1)
+    145 +        return r_eff, n, f"adaptive_heuristic_n{n}", 'adaptive'
+    146 +
+    147 +    r_eff = base_R
+    148 +    n_eff = max(1, (r_eff - 1) // 2)
+    149 +    return r_eff, n_eff, 'wbit', 'wbit'
+    150 +
+    151 +
+    152 +def _compute_rcp(effective_R: int, steps_taken: int, n_active_cells: int) -> float:
+    153 +    """
+    154 +    Compute RCP using the repo's convention (steps taken, not steps converged).
+    155 +    """
+    156 +    if steps_taken < 1:
+    157 +        steps_taken = 1
+    158 +    c_int = effective_R * effective_R
+    159 +    return (n_active_cells * steps_taken * c_int) / 1.0
+    160 +
+    161 +
+    162 +def wbit_eval_layer(W: Sequence[Sequence[float]], x_batch: Iterable[Sequence[float]], mode: str, R: int, sigma: float, trial
+         s: int = 10, binary_force_R2: bool = False, adaptive_max_n: int = None) -> dict:
+    163 +    """
+    164 +    Quantize a real layer into W-bit states, inject noise, and measure degradation.
+    165 +
+    166 +    Args:
+    167 +        W: weight matrix (out_dim x in_dim)
+    168 +        x_batch: iterable of input vectors
+    169 +        mode: 'wbit', 'binary', or 'adaptive'
+    170 +        R: configured radix
+    171 +        sigma: Gaussian noise stddev applied to quantized weights
+    172 +        trials: number of noisy trials to average
+    173 +        binary_force_R2: enable strict binary ablation
+    174 +        adaptive_max_n: clamp for adaptive n selection
+    175 +
+    176 +    Returns:
+    177 +        dict with success_rate, loss_delta, avg_rcp, R_effective, n_effective, mode_variant, net_mode
+    178 +    """
+    179 +    W_list = _to_list_matrix(W)
+    180 +    x_list = [_to_list_vector(x) for x in x_batch]
+    181 +    if not x_list:
+    182 +        raise ValueError("x_batch must contain at least one input vector")
+    183 +
+    184 +    baseline_outputs, baseline_preds = _forward_batch(W_list, x_list)
+    185 +
+    186 +    total_success = 0.0
+    187 +    total_loss = 0.0
+    188 +    total_rcp = 0.0
+    189 +
+    190 +    r_eff, n_eff, mode_variant, net_mode = resolve_effective_params(mode, R, sigma, binary_force_R2=binary_force_R2, adaptiv
+         e_max_n=adaptive_max_n)
+    191 +
+    192 +    for _ in range(trials):
+    193 +        qW, _levels = quantize_weights(W_list, r_eff)
+    194 +        noisyW = _add_weight_noise(qW, sigma)
+    195 +        outputs, preds = _forward_batch(noisyW, x_list)
+    196 +
+    197 +        matches = 0
+    198 +        for pred, ref in zip(preds, baseline_preds):
+    199 +            if pred == ref:
+    200 +                matches += 1
+    201 +        trial_success_rate = matches / len(x_list)
+    202 +
+    203 +        loss_delta = _mean_squared_error(outputs, baseline_outputs)
+    204 +
+    205 +        n_active_cells = len(W_list) * len(W_list[0]) if W_list and W_list[0] else len(W_list)
+    206 +        rcp = _compute_rcp(r_eff, 1, n_active_cells)
+    207 +
+    208 +        total_success += trial_success_rate
+    209 +        total_loss += loss_delta
+    210 +        total_rcp += rcp
+    211 +
+    212 +    success_rate = total_success / trials if trials > 0 else 0.0
+    213 +    avg_loss_delta = total_loss / trials if trials > 0 else 0.0
+    214 +    avg_rcp = total_rcp / trials if trials > 0 else 0.0
+    215 +
+    216 +    return {
+    217 +        "success_rate": success_rate,
+    218 +        "loss_delta": avg_loss_delta,
+    219 +        "avg_rcp": avg_rcp,
+    220 +        "mode": mode,
+    221 +        "mode_variant": mode_variant,
+    222 +        "net_mode": net_mode,
+    223 +        "R": R,
+    224 +        "R_effective": r_eff,
+    225 +        "n_effective": n_eff,
+    226 +        "sigma": sigma,
+    227 +        "trials": trials,
+    228 +    }
+
+• Planning a CLI script in experiments to run wbit_eval_layer with options for real or synthetic weights, multiple parameter sweeps,
+  and outputting CSV results including key metrics; keeping imports lazy and interface simple but flexible.
+
+• Added ~/W-bit/experiments/exp_real_layer_quant.py (+99 -0)
+     1 +import argparse
+     2 +import csv
+     3 +import os
+     4 +import random
+     5 +import sys
+     6 +
+     7 +# Add parent directory to path to import wdit
+     8 +sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+     9 +
+    10 +from wdit.quantization_lab import wbit_eval_layer
+    11 +
+    12 +
+    13 +def load_from_npz(path):
+    14 +    try:
+    15 +        import numpy as np  # Lazy import to avoid hard dependency when unused
+    16 +    except ImportError as exc:
+    17 +        raise ImportError("numpy is required to load --weights_npz inputs") from exc
+    18 +    data = np.load(path)
+    19 +    if 'W' not in data or 'x_batch' not in data:
+    20 +        raise ValueError("npz file must contain arrays named 'W' and 'x_batch'")
+    21 +    W = data['W']
+    22 +    x_batch = data['x_batch']
+    23 +    return W, x_batch
+    24 +
+    25 +
+    26 +def generate_demo(seed, in_dim, out_dim, batch_size):
+    27 +    random.seed(seed)
+    28 +    W = [[random.gauss(0, 0.5) for _ in range(in_dim)] for _ in range(out_dim)]
+    29 +    x_batch = []
+    30 +    for _ in range(batch_size):
+    31 +        x = [random.gauss(0, 1.0) for _ in range(in_dim)]
+    32 +        x_batch.append(x)
+    33 +    return W, x_batch
+    34 +
+    35 +
+    36 +def main():
+    37 +    parser = argparse.ArgumentParser(description="Quantize a real layer into W-bit states and measure degradation.")
+    38 +    parser.add_argument('--weights_npz', type=str, help="Optional .npz with arrays 'W' and 'x_batch' for real-model eval")
+    39 +    parser.add_argument('--layer_name', type=str, default='layer', help='Name recorded in CSV output')
+    40 +    parser.add_argument('--mode', type=str, default='wbit', choices=['wbit', 'binary', 'adaptive'])
+    41 +    parser.add_argument('--R', type=int, default=3, help='Configured radix for quantization')
+    42 +    parser.add_argument('--sigma', type=float, default=0.0, help='Noise stddev applied to quantized weights')
+    43 +    parser.add_argument('--sigma_list', type=float, nargs='+', default=None, help='Optional sweep over multiple sigmas')
+    44 +    parser.add_argument('--trials', type=int, default=10, help='Noisy trials to average')
+    45 +    parser.add_argument('--binary_force_R2', action='store_true', help='Strict binary ablation (R_effective = 2)')
+    46 +    parser.add_argument('--adaptive_max_n', type=int, default=None, help='Clamp for adaptive mode (R=2n+1)')
+    47 +    parser.add_argument('--output_csv', type=str, default='results/phase2/real_layer_quant.csv')
+    48 +    parser.add_argument('--seed', type=int, default=123, help='Seed for demo generation when no npz is provided')
+    49 +    parser.add_argument('--demo_in_dim', type=int, default=8, help='Demo input dimension when generating synthetic weights')
+    50 +    parser.add_argument('--demo_out_dim', type=int, default=3, help='Demo output dimension when generating synthetic weights'
+        )
+    51 +    parser.add_argument('--demo_batch', type=int, default=32, help='Demo batch size when generating synthetic weights')
+    52 +    parser.add_argument('--print_metrics', action='store_true', help='Print per-sigma metrics for quick inspection')
+    53 +    args = parser.parse_args()
+    54 +
+    55 +    if args.weights_npz:
+    56 +        W, x_batch = load_from_npz(args.weights_npz)
+    57 +    else:
+    58 +        W, x_batch = generate_demo(args.seed, args.demo_in_dim, args.demo_out_dim, args.demo_batch)
+    59 +
+    60 +    sigmas = args.sigma_list if args.sigma_list else [args.sigma]
+    61 +    os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+    62 +    write_header = not os.path.exists(args.output_csv)
+    63 +
+    64 +    with open(args.output_csv, 'a', newline='') as f:
+    65 +        writer = csv.writer(f)
+    66 +        header = [
+    67 +            'layer_name', 'mode', 'mode_variant', 'net_mode', 'R', 'R_effective', 'n_effective',
+    68 +            'sigma', 'trials', 'success_rate', 'loss_delta', 'avg_rcp'
+    69 +        ]
+    70 +        if write_header:
+    71 +            writer.writerow(header)
+    72 +
+    73 +        for sigma in sigmas:
+    74 +            stats = wbit_eval_layer(
+    75 +                W, x_batch, mode=args.mode, R=args.R, sigma=sigma,
+    76 +                trials=args.trials, binary_force_R2=args.binary_force_R2, adaptive_max_n=args.adaptive_max_n
+    77 +            )
+    78 +            row = [
+    79 +                args.layer_name, stats['mode'], stats['mode_variant'], stats['net_mode'],
+    80 +                args.R, stats['R_effective'], stats['n_effective'], stats['sigma'], stats['trials'],
+    81 +                f"{stats['success_rate']:.4f}", f"{stats['loss_delta']:.6f}", f"{stats['avg_rcp']:.1f}"
+    82 +            ]
+    83 +            writer.writerow(row)
+    84 +            if args.print_metrics:
+    85 +                print({
+    86 +                    "layer": args.layer_name,
+    87 +                    "mode": stats['mode'],
+    88 +                    "mode_variant": stats['mode_variant'],
+    89 +                    "sigma": stats['sigma'],
+    90 +                    "R_effective": stats['R_effective'],
+    91 +                    "n_effective": stats['n_effective'],
+    92 +                    "success_rate": stats['success_rate'],
+    93 +                    "loss_delta": stats['loss_delta'],
+    94 +                    "avg_rcp": stats['avg_rcp'],
+    95 +                })
+    96 +
+    97 +
+    98 +if __name__ == "__main__":
+    99 +    main()
+
+• Adjusting code to check if output directory is non-empty before calling os.makedirs to prevent errors when user provides a simple
+  filename without directories.
+
+• Edited ~/W-bit/experiments/exp_real_layer_quant.py (+3 -1)
+    60      sigmas = args.sigma_list if args.sigma_list else [args.sigma]
+    61 -    os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+    61 +    out_dir = os.path.dirname(args.output_csv)
+    62 +    if out_dir:
+    63 +        os.makedirs(out_dir, exist_ok=True)
+    64      write_header = not os.path.exists(args.output_csv)
+
+• Planning to add --R_values as an optional list and produce a new phase_diagram.csv file alongside the existing summary, looping
+  over all R values while adapting aggregation and output to handle multiple Rs without breaking existing behavior or test
+  expectations.
+
+• Edited ~/W-bit/experiments/exp_b_weight_noise_grid.py (+88 -66)
+     27      summary_csv_path = os.path.join(args.output_dir, 'summary.csv')
+     28 +    phase_csv_path = os.path.join(args.output_dir, 'phase_diagram.csv')
+     29
+     29 -    with open(summary_csv_path, 'w', newline='') as f:
+     30 -        writer = csv.writer(f)
+     31 -        header = ['weight_scale', 'sigma', 'trials', 'success_rate', 'avg_steps', 'avg_rcp', 'avg_final_conf', 'R', 'T', 'ma
+         x_steps', 'mode_variant', 'n_effective', 'R_effective']
+     32 -        writer.writerow(header)
+     33 -
+     34 -        if args.weight_scales:
+     35 -            weight_scales = args.weight_scales
+     36 -        else:
+     37 -            weight_scales = [1.0, 0.5, 0.2, 0.1, 0.05]
+     38 -
+     39 -        if args.sigma_list:
+     40 -            sigmas = args.sigma_list
+     41 -        else:
+     42 -            sigmas = [round(x * 0.1, 1) for x in range(0, 21)]
+     30 +    if args.weight_scales:
+     31 +        weight_scales = args.weight_scales
+     32 +    else:
+     33 +        weight_scales = [1.0, 0.5, 0.2, 0.1, 0.05]
+     34
+     44 -        # Store aggregated data for post-hoc breakpoint analysis
+     45 -        agg_data = {} # ws -> {sigma -> success_rate}
+     35 +    if args.sigma_list:
+     36 +        sigmas = args.sigma_list
+     37 +    else:
+     38 +        sigmas = [round(x * 0.1, 1) for x in range(0, 21)]
+     39 +
+     40 +    r_values = args.R_values if args.R_values else [args.R]
+     41
+     47 -        base_R = args.R
+     42 +    # Store aggregated data for post-hoc breakpoint analysis
+     43 +    agg_data = {} # R -> ws -> {sigma -> success_rate}
+     44 +
+     45 +    with open(summary_csv_path, 'w', newline='') as f_sum, open(phase_csv_path, 'w', newline='') as f_phase:
+     46 +        writer = csv.writer(f_sum)
+     47 +        header = ['weight_scale', 'sigma', 'trials', 'success_rate', 'avg_steps', 'avg_rcp', 'avg_final_conf', 'R', 'T', 'ma
+         x_steps', 'mode_variant', 'n_effective', 'R_effective']
+     48 +        writer.writerow(header)
+     49 +
+     50 +        phase_writer = csv.writer(f_phase)
+     51 +        phase_header = ['weight_scale', 'sigma', 'R_effective', 'mode', 'mode_variant', 'n_effective', 'phase_label', 'succe
+         ss_rate', 'avg_rcp']
+     52 +        phase_writer.writerow(phase_header)
+     53 +
+     54          base_max_n = getattr(args, 'adaptive_max_n', None)
+     49 -        def choose_effective(sigma):
+     55 +
+     56 +        def choose_effective(sigma, base_R):
+     57              if args.mode == 'binary':
+        ⋮
+     75
+     69 -        for ws in weight_scales:
+     70 -            print(f"\n--- Running Weight Scale {ws} ---")
+     71 -            agg_data[ws] = {}
+     72 -
+     73 -            for sigma in sigmas:
+     74 -                success_count = 0
+     75 -                total_steps = 0
+     76 -                total_rcp = 0.0
+     77 -                total_conf = 0.0
+     78 -                effective_R, n_effective, mode_variant, net_mode = choose_effective(sigma)
+     79 -                if getattr(args, 'debug_effective', False):
+     80 -                    print({"mode": args.mode, "weight_scale": ws, "sigma": sigma, "mode_variant": mode_variant, "n_effective
+         ": n_effective, "R_effective": effective_R})
+     76 +        for base_R in r_values:
+     77 +            agg_data[base_R] = {}
+     78 +            print(f"\n=== Sweeping R={base_R} ===")
+     79 +
+     80 +            for ws in weight_scales:
+     81 +                print(f"\n--- Running Weight Scale {ws} ---")
+     82 +                agg_data[base_R][ws] = {}
+     83
+     82 -                for trial in range(args.trials):
+     83 -                    trial_seed = args.seed + trial + int(sigma * 1000) + int(ws * 10000)
+     84 -                    success, steps, conf, rcp, active_cells = run_single_trial(
+     85 -                        sigma, ws, trial_seed, effective_R, args.T, args.max_steps,
+     86 -                        mode=args.mode, n_effective=n_effective, net_mode=net_mode, debug_metrics=args.debug_metrics, debug_
+         trial=getattr(args, 'debug_trial', False)
+     87 -                    )
+     88 -                    if success: success_count += 1
+     89 -                    total_steps += steps
+     90 -                    total_rcp += rcp
+     91 -                    total_conf += conf
+     84 +                for sigma in sigmas:
+     85 +                    success_count = 0
+     86 +                    total_steps = 0
+     87 +                    total_rcp = 0.0
+     88 +                    total_conf = 0.0
+     89 +                    effective_R, n_effective, mode_variant, net_mode = choose_effective(sigma, base_R)
+     90 +                    if getattr(args, 'debug_effective', False):
+     91 +                        print({"mode": args.mode, "weight_scale": ws, "sigma": sigma, "mode_variant": mode_variant, "n_effec
+         tive": n_effective, "R_effective": effective_R})
+     92 +
+     93 +                    for trial in range(args.trials):
+     94 +                        trial_seed = args.seed + trial + int(sigma * 1000) + int(ws * 10000) + int(base_R * 100000)
+     95 +                        success, steps, conf, rcp, active_cells = run_single_trial(
+     96 +                            sigma, ws, trial_seed, effective_R, args.T, args.max_steps,
+     97 +                            mode=args.mode, n_effective=n_effective, net_mode=net_mode, debug_metrics=args.debug_metrics, de
+         bug_trial=getattr(args, 'debug_trial', False)
+     98 +                        )
+     99 +                        if success: success_count += 1
+    100 +                        total_steps += steps
+    101 +                        total_rcp += rcp
+    102 +                        total_conf += conf
+    103 +
+    104 +                    success_rate = success_count / args.trials
+    105 +                    avg_steps = total_steps / args.trials
+    106 +                    avg_rcp = total_rcp / args.trials
+    107 +                    avg_final_conf = total_conf / args.trials
+    108
+     93 -                success_rate = success_count / args.trials
+     94 -                avg_steps = total_steps / args.trials
+     95 -                avg_rcp = total_rcp / args.trials
+     96 -                avg_final_conf = total_conf / args.trials
+     97 -
+     98 -                agg_data[ws][sigma] = success_rate
+     99 -
+    100 -                row = [ws, sigma, args.trials, f"{success_rate:.2f}", f"{avg_steps:.1f}", f"{avg_rcp:.1f}", f"{avg_final_con
+         f:.3f}", effective_R, args.T, args.max_steps, mode_variant, n_effective, effective_R]
+    101 -                assert len(row) == len(header), f"Row/Header mismatch: {len(row)} vs {len(header)}"
+    102 -                writer.writerow(row)
+    109 +                    agg_data[base_R][ws][sigma] = success_rate
+    110 +
+    111 +                    row = [ws, sigma, args.trials, f"{success_rate:.2f}", f"{avg_steps:.1f}", f"{avg_rcp:.1f}", f"{avg_final
+         _conf:.3f}", effective_R, args.T, args.max_steps, mode_variant, n_effective, effective_R]
+    112 +                    assert len(row) == len(header), f"Row/Header mismatch: {len(row)} vs {len(header)}"
+    113 +                    writer.writerow(row)
+    114 +
+    115 +                    if success_rate >= 0.90:
+    116 +                        phase_label = 'good'
+    117 +                    elif success_rate >= 0.10:
+    118 +                        phase_label = 'edge'
+    119 +                    else:
+    120 +                        phase_label = 'fail'
+    121 +                    phase_row = [ws, sigma, effective_R, args.mode, mode_variant, n_effective, phase_label, f"{success_rate:
+         .2f}", f"{avg_rcp:.1f}"]
+    122 +                    assert len(phase_row) == len(phase_header), f"Phase Row/Header mismatch: {len(phase_row)} vs {len(phase_
+         header)}"
+    123 +                    phase_writer.writerow(phase_row)
+    124
+        ⋮
+    126          print("\n=== Breakpoint Summary ===")
+    106 -        print(f"{ 'Weight Scale':<15} { 'Sigma (90%)':<15} { 'Sigma (50%)':<15}")
+    107 -        print("-" * 45)
+    108 -        for ws in weight_scales:
+    109 -            s90 = -1.0
+    110 -            s50 = -1.0
+    111 -
+    112 -            # Iterate sorted sigmas to find max thresholds
+    113 -            for sigma in sigmas:
+    114 -                rate = agg_data[ws].get(sigma, 0.0)
+    115 -                if rate >= 0.90: s90 = sigma
+    116 -                if rate >= 0.50: s50 = sigma
+    117 -
+    118 -            s90_str = f"{s90:.1f}" if s90 >= 0 else "None"
+    119 -            s50_str = f"{s50:.1f}" if s50 >= 0 else "None"
+    120 -
+    121 -            print(f"{ws:<15} {s90_str:<15} {s50_str:<15}")
+    127 +        print(f"{ 'R':<5} { 'Weight Scale':<15} { 'Sigma (90%)':<15} { 'Sigma (50%)':<15}")
+    128 +        print("-" * 60)
+    129 +        for base_R in r_values:
+    130 +            for ws in weight_scales:
+    131 +                s90 = -1.0
+    132 +                s50 = -1.0
+    133 +
+    134 +                # Iterate sorted sigmas to find max thresholds
+    135 +                for sigma in sigmas:
+    136 +                    rate = agg_data[base_R][ws].get(sigma, 0.0)
+    137 +                    if rate >= 0.90: s90 = sigma
+    138 +                    if rate >= 0.50: s50 = sigma
+    139 +
+    140 +                s90_str = f"{s90:.1f}" if s90 >= 0 else "None"
+    141 +                s50_str = f"{s50:.1f}" if s50 >= 0 else "None"
+    142 +
+    143 +                print(f"{base_R:<5} {ws:<15} {s90_str:<15} {s50_str:<15}")
+    144
+
+• Edited ~/W-bit/experiments/exp_b_weight_noise_grid.py (+1 -0)
+    151      parser.add_argument('--R', type=int, default=3)
+    152 +    parser.add_argument('--R_values', type=int, nargs='+', help='Optional sweep over multiple R values (includes R if provid
+         ed)', default=None)
+    153      parser.add_argument('--T', type=float, default=0.2)
+
+• The code doesn't automatically include base R when R_values is provided, conflicting with the argument description. I'll update the
+  argument help to reflect that R_values is an explicit list without implicit base R inclusion.
+
+• Edited ~/W-bit/experiments/exp_b_weight_noise_grid.py (+1 -1)
+    151      parser.add_argument('--R', type=int, default=3)
+    152 -    parser.add_argument('--R_values', type=int, nargs='+', help='Optional sweep over multiple R values (includes R if provid
+         ed)', default=None)
+    152 +    parser.add_argument('--R_values', type=int, nargs='+', help='Optional sweep over multiple R values (overrides --R)', def
+         ault=None)
+    153      parser.add_argument('--T', type=float, default=0.2)
+
+• I'm outlining a new script to run adaptive policy experiments by enumerating sigma thresholds and policy parameters, reusing
+  run_single_trial with net_mode='adaptive'. The script will compute and log success rates, effective R, rcp, and a normalized score
+  to CSV with configurable defaults and argument parsing.
+
+• Added ~/W-bit/experiments/adaptive_policy_search.py (+141 -0)
+      1 +import argparse
+      2 +import csv
+      3 +import os
+      4 +import sys
+      5 +
+      6 +# Add parent directory to path to import wdit helpers
+      7 +sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+      8 +
+      9 +# Import run_single_trial from Experiment B to reuse dynamics
+     10 +sys.path.append(os.path.dirname(__file__))
+     11 +try:
+     12 +    from exp_b_noise_breakdown import run_single_trial
+     13 +except ImportError as e:
+     14 +    raise ImportError(
+     15 +        "Failed to import run_single_trial from exp_b_noise_breakdown. "
+     16 +        "Run from repo root: `python3 experiments/adaptive_policy_search.py ...`. "
+     17 +        f"Original error: {e}"
+     18 +    ) from e
+     19 +
+     20 +
+     21 +def n_from_policy(sigma, threshold, n_low, n_high, adaptive_max_n):
+     22 +    n = n_low if sigma < threshold else n_high
+     23 +    if adaptive_max_n is not None:
+     24 +        n = min(n, adaptive_max_n)
+     25 +    return max(1, n)
+     26 +
+     27 +
+     28 +def evaluate_policy(args, sigma_threshold, n_low, n_high):
+     29 +    results = {
+     30 +        "success": 0,
+     31 +        "trials": 0,
+     32 +        "rcp": 0.0,
+     33 +        "R_effective_sum": 0.0,
+     34 +        "total_samples": 0,
+     35 +    }
+     36 +
+     37 +    sigmas = args.sigma_list if args.sigma_list else [round(x * 0.1, 1) for x in range(0, 9)]
+     38 +    weight_scales = args.weight_scales if args.weight_scales else [1.0, 0.5]
+     39 +
+     40 +    for ws in weight_scales:
+     41 +        for sigma in sigmas:
+     42 +            n_effective = n_from_policy(sigma, sigma_threshold, n_low, n_high, args.adaptive_max_n)
+     43 +            R_effective = max(3, 2 * n_effective + 1)
+     44 +            for trial in range(args.trials):
+     45 +                trial_seed = args.seed + trial + int(sigma * 1000) + int(ws * 10000)
+     46 +                success, steps, conf, rcp, active_cells = run_single_trial(
+     47 +                    sigma, ws, trial_seed, R_effective, args.T, args.max_steps,
+     48 +                    mode='adaptive', n_effective=n_effective, net_mode='adaptive', debug_metrics=args.debug_metrics, debug_t
+         rial=getattr(args, 'debug_trial', False)
+     49 +                )
+     50 +                results["trials"] += 1
+     51 +                if success:
+     52 +                    results["success"] += 1
+     53 +                results["rcp"] += rcp
+     54 +                results["R_effective_sum"] += R_effective
+     55 +                results["total_samples"] += 1
+     56 +
+     57 +    success_rate = results["success"] / results["trials"] if results["trials"] > 0 else 0.0
+     58 +    avg_rcp = results["rcp"] / results["trials"] if results["trials"] > 0 else 0.0
+     59 +    avg_R_effective = results["R_effective_sum"] / results["trials"] if results["trials"] > 0 else 0.0
+     60 +
+     61 +    # Normalize RCP by R^2 to keep scoring stable across radix
+     62 +    rcp_norm = avg_rcp / (args.R * args.R) if args.R > 0 else avg_rcp
+     63 +
+     64 +    score = success_rate - (args.alpha * avg_R_effective) - (args.beta * rcp_norm)
+     65 +
+     66 +    return {
+     67 +        "sigma_threshold": sigma_threshold,
+     68 +        "n_low": n_low,
+     69 +        "n_high": n_high,
+     70 +        "success_rate": success_rate,
+     71 +        "avg_rcp": avg_rcp,
+     72 +        "avg_R_effective": avg_R_effective,
+     73 +        "score": score,
+     74 +        "trials": results["trials"],
+     75 +    }
+     76 +
+     77 +
+     78 +def main():
+     79 +    parser = argparse.ArgumentParser(description="Grid search simple adaptive policies over sigma thresholds.")
+     80 +    parser.add_argument('--sigma_thresholds', type=float, nargs='+', default=[0.3, 0.5, 0.7], help='Threshold candidates for
+          switching n_effective')
+     81 +    parser.add_argument('--n_high_candidates', type=int, nargs='+', default=[2, 3], help='High n values to test when sigma >
+         = threshold')
+     82 +    parser.add_argument('--n_low', type=int, default=1, help='Low n value when sigma < threshold')
+     83 +    parser.add_argument('--adaptive_max_n', type=int, default=None, help='Clamp n for adaptive mode')
+     84 +    parser.add_argument('--sigma_list', type=float, nargs='+', default=None, help='Sigma sweep used to score policies')
+     85 +    parser.add_argument('--weight_scales', type=float, nargs='+', default=None, help='Weight scale sweep used to score polic
+         ies')
+     86 +    parser.add_argument('--trials', type=int, default=10, help='Trials per sigma/weight_scale')
+     87 +    parser.add_argument('--seed', type=int, default=99, help='Base seed')
+     88 +    parser.add_argument('--R', type=int, default=3, help='Base R for scoring / normalization')
+     89 +    parser.add_argument('--T', type=float, default=0.2)
+     90 +    parser.add_argument('--max_steps', type=int, default=50)
+     91 +    parser.add_argument('--alpha', type=float, default=0.05, help='Penalty weight on avg_R_effective')
+     92 +    parser.add_argument('--beta', type=float, default=0.001, help='Penalty weight on normalized RCP')
+     93 +    parser.add_argument('--output_csv', type=str, default='results/phase2/adaptive_policy_search.csv')
+     94 +    parser.add_argument('--debug_metrics', action='store_true')
+     95 +    parser.add_argument('--debug_trial', action='store_true')
+     96 +    parser.add_argument('--print_metrics', action='store_true')
+     97 +    args = parser.parse_args()
+     98 +
+     99 +    os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+    100 +    write_header = not os.path.exists(args.output_csv)
+    101 +
+    102 +    best = None
+    103 +    rows = []
+    104 +
+    105 +    for sigma_t in args.sigma_thresholds:
+    106 +        for n_high in args.n_high_candidates:
+    107 +            stats = evaluate_policy(args, sigma_t, args.n_low, n_high)
+    108 +            rows.append(stats)
+    109 +            if best is None or stats['score'] > best['score']:
+    110 +                best = stats
+    111 +            if args.print_metrics:
+    112 +                print({
+    113 +                    "sigma_threshold": sigma_t,
+    114 +                    "n_low": args.n_low,
+    115 +                    "n_high": n_high,
+    116 +                    "success_rate": stats['success_rate'],
+    117 +                    "avg_R_effective": stats['avg_R_effective'],
+    118 +                    "avg_rcp": stats['avg_rcp'],
+    119 +                    "score": stats['score'],
+    120 +                })
+    121 +
+    122 +    with open(args.output_csv, 'a', newline='') as f:
+    123 +        writer = csv.writer(f)
+    124 +        header = ['policy_id', 'sigma_threshold', 'n_low', 'n_high', 'success_rate', 'avg_R_effective', 'avg_rcp', 'score',
+         'trials']
+    125 +        if write_header:
+    126 +            writer.writerow(header)
+    127 +        for idx, row in enumerate(rows):
+    128 +            csv_row = [
+    129 +                idx, row['sigma_threshold'], row['n_low'], row['n_high'],
+    130 +                f"{row['success_rate']:.4f}", f"{row['avg_R_effective']:.2f}", f"{row['avg_rcp']:.2f}", f"{row['score']:.4f}
+         ", row['trials']
+    131 +            ]
+    132 +            writer.writerow(csv_row)
+    133 +
+    134 +    if best is not None:
+    135 +        print("\n=== Best Policy (adaptive_policy_v1 candidate) ===")
+         g_rcp']:.2f}, score: {best['score']:.4f}")
+    140 +if __name__ == "__main__":
+    141 +    main()
+
+• I need to check if the directory path derived from the output CSV argument is non-empty before calling os.makedirs to avoid errors
+    100 +    if out_dir:
+    101 +        os.makedirs(out_dir, exist_ok=True)
+    102      write_header = not os.path.exists(args.output_csv)
+
+• Updated Plan
+  └ ✔ Add wbit_eval_layer helper + CLI runner to quantize real layer weights, push activation batches, and log CSV with mode/
+      R_effective stats.
+    ✔ Extend ExpB grid to sweep multiple R values and emit phase_diagram.csv with phase labels + success/rcp summaries without
+      breaking existing defaults/tests.
+    ✔ Add adaptive policy search script to grid-search simple sigma threshold policies over n_effective and report best policy with
+      metrics.
+
+• Ran python3 -m py_compile run_phase1.py run_phase2.py experiments/*.py analysis/*.py src/wdit/*.py tests/*.py
+  └ (no output)
+
+• Ran python3 tests/test_no_pandas_imports.py
+  └ OK: no pandas
+
+• I'm deciding to include the phase1 smoke test with the recommended shell command, running it sequentially despite taking time since
+✔ You approved codex to run rm -rf results && python3 tests/smoke_phase1_8.py and applied the execpolicy amendment
+
+• Ran rm -rf results && python3 tests/smoke_phase1_8.py
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +119 lines
+
+    >> /usr/bin/python3 experiments/exp_b_weight_noise_grid.py --trials 3
+
+• Ran rm -rf results && python3 tests/smoke_phase2_scaffold.py
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +255 lines
+
+    >> /usr/bin/python3 tests/test_no_pandas_imports.py
+
+• The current smoke run includes run_phase2 with --smoke and --run_expB_grid but lacks the required run with --binary_force_R2; I'll
+  execute that next.
+
+• Ran rm -rf results && python3 run_phase2.py --smoke --run_expB_grid --binary_force_R2
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +225 lines
+    === Phase 2 scaffold complete ===
+    Report: results/phase2/phase2_report.csv
+
+• I'm noting several new files and modifications, plus multiple results created by tests; I'll run a concise status check to verify
+  and mention all relevant new outputs and changes in the summary.
+
+• Ran git status -sb
+  └ fatal: not a git repository (or any of the parent directories): .git
+
+• The final message will include a brief restatement, followed by a clear plan recap, detailed file edits with snippets, listed
+  commands run (with successes), expected behaviors for each, and notes on new features and future considerations as instructed.
+
+─ Worked for 6m 06s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Built the requested “next level” scaffolds: real-weight layer quantization evaluation, a Phase 2-style phase diagram output, and a
+  simple adaptive policy search, while keeping existing defaults/tests intact.
+
+  Plan
+
+  - Add a reusable wbit_eval_layer helper plus a CLI runner to quantize real layer weights, inject noise, and log mode/R_effective
+    stats.
+  - Extend ExpB weight/noise grid to sweep multiple R values and emit a phase_diagram.csv with phase labels and RCP summaries without
+    changing default behavior.
+  - Add an adaptive policy search script that grid-searches a simple sigma-threshold policy over n_effective and reports the best
+    policy.
+
+  Edits
+
+  - src/wdit/quantization_lab.py: New helper that quantizes a given weight matrix to R levels, adds weight noise, forwards real
+    activation batches, and returns success_rate (vs baseline logits), loss_delta, avg_rcp, and effective mode metadata. Uses
+    existing mode/variant semantics and keeps RCP derived from steps_taken.
+      - Example core:
+
+        qW, _ = quantize_weights(W_list, r_eff)
+        noisyW = _add_weight_noise(qW, sigma)
+        outputs, preds = _forward_batch(noisyW, x_list)
+        trial_success_rate = matches / len(x_list)
+        rcp = _compute_rcp(r_eff, 1, n_active_cells)
+  - experiments/exp_real_layer_quant.py: CLI to run wbit_eval_layer on either a provided .npz (W, x_batch) or a synthetic demo
+    batch; logs CSV with layer_name, mode, mode_variant, net_mode, R_effective, n_effective, sigma, trials, success_rate, loss_delta,
+    avg_rcp.
+      - Usage:
+
+        python3 experiments/exp_real_layer_quant.py --weights_npz your_layer.npz --mode wbit --R 5 --sigma_list 0.0 0.2 0.4 --trials
+  20 --print_metrics
+  - experiments/exp_b_weight_noise_grid.py: Added --R_values sweep and automatic phase_diagram.csv with phase labels (good/edge/fail
+    from success_rate thresholds), while preserving the original summary.csv header and defaults.
+        phase_header =
+  ['weight_scale','sigma','R_effective','mode','mode_variant','n_effective','phase_label','success_rate','avg_rcp']
+  - experiments/adaptive_policy_search.py: New script that grid-searches sigma-threshold policies (n_low vs n_high) over
+    a small ExpB-like sweep, scoring policies with penalties on avg_R_effective and normalized RCP; writes results/phase2/
+    adaptive_policy_search.csv and prints the best policy.
+      - Example:
+
+        python3 experiments/adaptive_policy_search.py --sigma_thresholds 0.3 0.6 --n_high_candidates 2 3 --trials 5 --print_metrics
+
+  Commands
+
+  - python3 -m py_compile run_phase1.py run_phase2.py experiments/*.py analysis/*.py src/wdit/*.py tests/*.py
+  - python3 tests/test_no_pandas_imports.py
+  - rm -rf results && python3 tests/smoke_phase1_8.py
+  - rm -rf results && python3 tests/smoke_phase2_scaffold.py
+  Expected behavior
+
+  - All above commands pass; smokes regenerate results/phase1 and results/phase2 scaffolds. Binary strict R=2 ablation remains the
+    low-success baseline, as expected.
+
+  Notes / future hooks
+
+  - wbit_eval_layer treats baseline logits as the reference labels; plug in real model activations via .npz to measure quantization/
+    noise impact without pandas. RCP is a simple layer-level proxy using steps_taken=1 and R^2 interaction cost.
+  - phase_diagram.csv now produced alongside summary.csv in ExpB grid runs; thresholds are configurable by editing the script if you
+    want different phase boundaries.
+  - Adaptive policy search is a minimal grid (sigma threshold + n_high); extend with richer features/history or different cost
+    weights (--alpha, --beta) as you iterate.
+
+
+› what is left?
+
+
+• A few natural next steps to fully realize the “transcend” roadmap:
+
+  - Plug in real weights: export a small trained layer (e.g., MNIST MLP or a tiny transformer projection) to .npz with W and x_batch,
+    run experiments/exp_real_layer_quant.py across R and sigma, and plot loss_delta vs R / robustness curves.
+  - Phase diagrams: run experiments/exp_b_weight_noise_grid.py --R_values 3 5 7 9 --trials <N> and turn the new phase_diagram.csv
+    into heatmaps (R vs sigma, colored by phase_label). Add a plotting helper if you want it baked in.
+  - Adaptive policy: sweep wider policy grids with experiments/adaptive_policy_search.py (tune --sigma_thresholds,
+    --n_high_candidates, --alpha, --beta), then wire the chosen policy back into adaptive mode as adaptive_policy_v1.
+  - Analysis glue: add a small plotting script for real_layer_quant.csv (loss_delta vs R, robustness vs sigma) and for
+    phase_diagram.csv (phase heatmaps).
+  - Library refactor (longer-term): centralize mode/effective-param logic and shared runners into a wbit_core module to de-duplicate
+    across experiments.
+
+
+› yeah lets do those
+
+
+• Planning to add two matplotlib-only analysis scripts for plotting real layer quant and phase diagram CSVs, plus optionally extend
+  adaptive policy computation with new CLI args for policy parameters while preserving defaults to avoid test breaks. Next I'll
+  implement these plotting scripts and integrate optional adaptive policy overrides following this minimal-impact strategy.
+
+• Edited ~/W-bit/experiments/exp_b_noise_breakdown.py (+28 -18)
+     14
+     15 -def compute_adaptive_n(grid, density, sigma, optimal_dist, adaptive_max_n, fallback_R):
+     16 -    score = 0
+     17 -    if grid is not None and grid >= 30:
+     18 -        score += 1
+     19 -    if density is not None and density >= 0.30:
+     20 -        score += 1
+     21 -    if sigma is not None and sigma >= 0.5:
+     22 -        score += 1
+     23 -    if optimal_dist is not None and grid is not None and optimal_dist >= grid:
+     24 -        score += 1
+     25 -    if score <= 0:
+     26 -        n = 1
+     27 -    elif score == 1:
+     28 -        n = 2
+     29 -    elif score == 2:
+     30 -        n = 3
+     15 +def compute_adaptive_n(grid, density, sigma, optimal_dist, adaptive_max_n, fallback_R, sigma_threshold=None, n_low=None, n_h
+         igh=None):
+     16 +    """
+     17 +    Default heuristic unless an explicit sigma threshold policy is provided.
+     18 +    sigma_threshold + n_low/n_high implements an adaptive_policy_v1-style controller.
+     19 +    """
+     20 +    if sigma_threshold is not None and n_low is not None and n_high is not None:
+     21 +        n = n_low if sigma is None or sigma < sigma_threshold else n_high
+     22      else:
+     32 -        n = 4
+     27 +            score += 1
+     28 +        if sigma is not None and sigma >= 0.5:
+     29 +            score += 1
+     30 +        if optimal_dist is not None and grid is not None and optimal_dist >= grid:
+     31 +            score += 1
+     32 +        if score <= 0:
+     33 +            n = 1
+     34 +        elif score == 1:
+     35 +            n = 2
+     36 +        elif score == 2:
+     37 +            n = 3
+     38 +        else:
+     39 +            n = 4
+     40      max_n = adaptive_max_n if adaptive_max_n is not None else max(1, (fallback_R - 1) // 2)
+        ⋮
+    176          adaptive_max_n = getattr(args, 'adaptive_max_n', None)
+    177 +        sigma_threshold = getattr(args, 'adaptive_sigma_threshold', None)
+    178 +        n_low = getattr(args, 'adaptive_n_low', None)
+    179 +        n_high = getattr(args, 'adaptive_n_high', None)
+    180          for sigma in sigmas:
+        ⋮
+    186              elif args.mode == 'adaptive':
+    177 -                n_effective = compute_adaptive_n(None, None, sigma, None, adaptive_max_n, args.R)
+    187 +                n_effective = compute_adaptive_n(None, None, sigma, None, adaptive_max_n, args.R, sigma_threshold, n_low, n_
+         high)
+    188                  effective_R = max(3, 2 * n_effective + 1)
+
+• Explored
+  └ Search adaptive_max_n in exp_b_noise_breakdown.py
+    Read exp_b_noise_breakdown.py
+
+• Edited ~/W-bit/experiments/exp_b_noise_breakdown.py (+3 -0)
+    232      parser.add_argument('--adaptive_max_n', type=int, default=None, help='Max n (R=2n+1) for adaptive mode')
+    233 +    parser.add_argument('--adaptive_sigma_threshold', type=float, default=None, help='Optional sigma threshold policy overri
+         de for adaptive mode')
+    234 +    parser.add_argument('--adaptive_n_low', type=int, default=None, help='n when sigma < threshold (adaptive override)')
+    235 +    parser.add_argument('--adaptive_n_high', type=int, default=None, help='n when sigma >= threshold (adaptive override)')
+    236      parser.add_argument('--debug_trial', action='store_true', help='Print per-trial effective params/results')
+
+• Edited ~/W-bit/experiments/exp_b_weight_noise_grid.py (+10 -4)
+    54          base_max_n = getattr(args, 'adaptive_max_n', None)
+    55 +        sigma_threshold = getattr(args, 'adaptive_sigma_threshold', None)
+    56 +        n_low = getattr(args, 'adaptive_n_low', None)
+    57 +        n_high = getattr(args, 'adaptive_n_high', None)
+    58
+       ⋮
+    66              if args.mode == 'adaptive':
+    64 -                score = 0
+    65 -                if sigma is not None and sigma >= 0.5:
+    66 -                    score += 1
+    67 -                n = 1 if score <= 0 else 2 if score == 1 else 3 if score == 2 else 4
+    67 +                if sigma_threshold is not None and n_low is not None and n_high is not None:
+    68 +                    n = n_low if sigma is None or sigma < sigma_threshold else n_high
+    69 +                else:
+    70 +                    score = 0
+    71 +                    if sigma is not None and sigma >= 0.5:
+    72 +                        score += 1
+    73 +                    n = 1 if score <= 0 else 2 if score == 1 else 3 if score == 2 else 4
+    74                  max_n = base_max_n if base_max_n is not None else max(1, (base_R - 1) // 2)
+
+• Edited ~/W-bit/experiments/exp_b_weight_noise_grid.py (+3 -0)
+    167      parser.add_argument('--adaptive_max_n', type=int, default=None, help='Max n (R=2n+1) for adaptive mode')
+    168 +    parser.add_argument('--adaptive_sigma_threshold', type=float, default=None, help='Optional sigma threshold policy overri
+         de for adaptive mode')
+    169 +    parser.add_argument('--adaptive_n_low', type=int, default=None, help='n when sigma < threshold (adaptive override)')
+    170 +    parser.add_argument('--adaptive_n_high', type=int, default=None, help='n when sigma >= threshold (adaptive override)')
+    171      parser.add_argument('--debug_effective', action='store_true', help='Print effective R/n per sigma for debugging')
+
+• Added ~/W-bit/analysis/plot_real_layer_quant.py (+93 -0)
+     1 +import argparse
+     2 +import csv
+     3 +import os
+     4 +
+     5 +import matplotlib.pyplot as plt
+     6 +
+     7 +
+     8 +def read_rows(path):
+     9 +    rows = []
+    10 +    with open(path, newline='') as f:
+    11 +        reader = csv.DictReader(f)
+    12 +        for row in reader:
+    13 +            rows.append(row)
+    14 +    return rows
+    15 +
+    16 +
+    17 +def to_float(row, key, default=0.0):
+    18 +    try:
+    19 +        return float(row[key])
+    20 +    except Exception:
+    21 +        return default
+    22 +
+    23 +
+    24 +def group_by(rows, key):
+    25 +    groups = {}
+    26 +    for row in rows:
+    27 +        k = row.get(key)
+    28 +        groups.setdefault(k, []).append(row)
+    29 +    return groups
+    30 +
+    31 +
+    32 +def plot_loss_vs_R(rows, out_dir):
+    33 +    by_sigma = group_by(rows, 'sigma')
+    34 +    for sigma, sigma_rows in by_sigma.items():
+    35 +        plt.figure()
+    36 +        for mode in sorted(set(r.get('mode') for r in sigma_rows)):
+    37 +            sub = [r for r in sigma_rows if r.get('mode') == mode]
+    38 +            sub = sorted(sub, key=lambda r: to_float(r, 'R_effective'))
+    39 +            xs = [to_float(r, 'R_effective') for r in sub]
+    40 +            ys = [to_float(r, 'loss_delta') for r in sub]
+    41 +            plt.plot(xs, ys, marker='o', label=f"{mode}")
+    42 +        plt.xlabel("R_effective")
+    43 +        plt.ylabel("loss_delta vs baseline logits")
+    44 +        plt.title(f"Loss delta vs R (sigma={sigma})")
+    45 +        plt.legend()
+    46 +        plt.grid(True)
+    47 +        outfile = os.path.join(out_dir, f"real_layer_loss_vs_R_sigma{sigma}.png")
+    48 +        plt.savefig(outfile, bbox_inches='tight')
+    49 +        plt.close()
+    50 +
+    51 +
+    52 +def plot_success_vs_sigma(rows, out_dir):
+    53 +    by_R = group_by(rows, 'R_effective')
+    54 +    for R_eff, R_rows in by_R.items():
+    55 +        plt.figure()
+    56 +        for mode in sorted(set(r.get('mode') for r in R_rows)):
+    57 +            sub = [r for r in R_rows if r.get('mode') == mode]
+    58 +            sub = sorted(sub, key=lambda r: to_float(r, 'sigma'))
+    59 +            xs = [to_float(r, 'sigma') for r in sub]
+    60 +            ys = [to_float(r, 'success_rate') for r in sub]
+    61 +            plt.plot(xs, ys, marker='o', label=f"{mode}")
+    62 +        plt.xlabel("sigma (weight noise)")
+    63 +        plt.ylabel("success_rate (pred match to baseline)")
+    64 +        plt.title(f"Robustness vs sigma (R_effective={R_eff})")
+    65 +        plt.legend()
+    66 +        plt.grid(True)
+    67 +        outfile = os.path.join(out_dir, f"real_layer_success_vs_sigma_R{R_eff}.png")
+    68 +        plt.savefig(outfile, bbox_inches='tight')
+    69 +        plt.close()
+    70 +
+    71 +
+    72 +def main():
+    73 +    parser = argparse.ArgumentParser(description="Plot loss_delta vs R and robustness vs sigma from real_layer_quant CSV.")
+    74 +    parser.add_argument('--input_csv', type=str, default='results/phase2/real_layer_quant.csv')
+    75 +    parser.add_argument('--output_dir', type=str, default=None, help='Override output dir (default: same as CSV)')
+    76 +    args = parser.parse_args()
+    77 +
+    78 +    rows = read_rows(args.input_csv)
+    79 +    if not rows:
+    80 +        print("No rows to plot.")
+    81 +        return
+    82 +
+    83 +    out_dir = args.output_dir if args.output_dir else os.path.dirname(args.input_csv)
+    84 +    if out_dir:
+    85 +        os.makedirs(out_dir, exist_ok=True)
+    86 +
+    87 +    plot_loss_vs_R(rows, out_dir)
+    88 +    plot_success_vs_sigma(rows, out_dir)
+    89 +    print(f"Plots written to {out_dir}")
+    90 +
+    91 +
+    92 +if __name__ == "__main__":
+    93 +    main()
+
+• Added ~/W-bit/analysis/plot_phase_diagram.py (+88 -0)
+     1 +import argparse
+     2 +import csv
+     3 +import os
+     4 +
+     5 +import matplotlib.pyplot as plt
+     6 +
+     7 +
+     8 +def read_rows(path):
+     9 +    with open(path, newline='') as f:
+    10 +        return list(csv.DictReader(f))
+    11 +
+    12 +
+    13 +def unique_sorted(values, cast_fn):
+    14 +    return sorted({cast_fn(v) for v in values})
+    15 +
+    16 +
+    17 +def build_grid(rows, weight_scale, mode):
+    18 +    filtered = [r for r in rows if r.get('weight_scale') == weight_scale and r.get('mode') == mode]
+    19 +    sigmas = unique_sorted([r['sigma'] for r in filtered], float)
+    20 +    Rs = unique_sorted([r['R_effective'] for r in filtered], float)
+    21 +    sigma_index = {s: idx for idx, s in enumerate(sigmas)}
+    22 +    R_index = {r: idx for idx, r in enumerate(Rs)}
+    23 +
+    24 +    success_grid = [[None for _ in sigmas] for _ in Rs]
+    25 +    phase_grid = [[None for _ in sigmas] for _ in Rs]
+    26 +
+    27 +    for r in filtered:
+    28 +        s_val = float(r['sigma'])
+    29 +        r_val = float(r['R_effective'])
+    30 +        sr = float(r['success_rate'])
+    31 +        phase = r.get('phase_label', 'unknown')
+    32 +        success_grid[R_index[r_val]][sigma_index[s_val]] = sr
+    33 +        phase_grid[R_index[r_val]][sigma_index[s_val]] = phase
+    34 +
+    35 +    return sigmas, Rs, success_grid, phase_grid
+    36 +
+    37 +
+    38 +def render_heatmap(sigmas, Rs, grid, title, outfile, cmap='viridis', phase=False):
+    39 +    plt.figure(figsize=(8, 4.5))
+    40 +    if phase:
+    41 +        phase_map = {'fail': 0, 'edge': 1, 'good': 2, None: -1, 'unknown': -1}
+    42 +        numeric_grid = [[phase_map.get(cell, -1) for cell in row] for row in grid]
+    43 +        im = plt.imshow(numeric_grid, origin='lower', aspect='auto', cmap=plt.cm.get_cmap('coolwarm', 3))
+    44 +        cbar = plt.colorbar(im, ticks=[0, 1, 2])
+    45 +        cbar.ax.set_yticklabels(['fail', 'edge', 'good'])
+    46 +    else:
+    47 +        im = plt.imshow(grid, origin='lower', aspect='auto', cmap=cmap, vmin=0.0, vmax=1.0)
+    48 +        plt.colorbar(im, label='success_rate')
+    49 +    plt.xticks(range(len(sigmas)), [str(s) for s in sigmas], rotation=45)
+    50 +    plt.yticks(range(len(Rs)), [str(r) for r in Rs])
+    51 +    plt.xlabel("sigma")
+    52 +    plt.ylabel("R_effective")
+    53 +    plt.title(title)
+    54 +    plt.tight_layout()
+    55 +    plt.savefig(outfile, bbox_inches='tight')
+    56 +    plt.close()
+    57 +
+    58 +
+    61 +    parser.add_argument('--input_csv', type=str, default='results/phase2/wbit/expB_grid/phase_diagram.csv')
+    64 +    args = parser.parse_args()
+    67 +    if not rows:
+    68 +        print("No rows found.")
+    69 +        return
+    70 +
+    71 +    out_dir = args.output_dir if args.output_dir else os.path.dirname(args.input_csv)
+    74 +
+    75 +    weight_scales = sorted({r['weight_scale'] for r in rows})
+    76 +    for ws in weight_scales:
+    77 +        sigmas, Rs, success_grid, phase_grid = build_grid(rows, ws, args.mode)
+    78 +        if not sigmas or not Rs:
+    81 +        phase_out = os.path.join(out_dir, f"phase_labels_ws{ws}_{args.mode}.png")
+    82 +        render_heatmap(sigmas, Rs, success_grid, f"Success Rate (ws={ws}, mode={args.mode})", success_out)
+    83 +        render_heatmap(sigmas, Rs, phase_grid, f"Phase Labels (ws={ws}, mode={args.mode})", phase_out, phase=True)
+    84 +    print(f"Phase plots written to {out_dir}")
+    85 +
+    86 +
+    87 +if __name__ == "__main__":
+    88 +    main()
+
+• Ran python3 -m py_compile run_phase1.py run_phase2.py experiments/*.py analysis/*.py src/wdit/*.py tests/*.py
+  └ (no output)
+
+• Ran python3 tests/test_no_pandas_imports.py
+  └ OK: no pandas
+
+• Ran rm -rf results && python3 tests/smoke_phase1_8.py
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +119 lines
+
+    >> /usr/bin/python3 experiments/exp_b_weight_noise_grid.py --trials 3
+
+• Ran rm -rf results && python3 tests/smoke_phase2_scaffold.py
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +255 lines
+
+    >> /usr/bin/python3 tests/test_no_pandas_imports.py
+
+• Ran rm -rf results && python3 run_phase2.py --smoke --run_expB_grid --binary_force_R2
+  └ Starting Experiment A: Router Sweep
+    Layout: random
+    … +225 lines
+    === Phase 2 scaffold complete ===
+    Report: results/phase2/phase2_report.csv
+
+─ Worked for 1m 58s ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Restated task: deliver the “next level” steps—real-weight quantization lab plots, phase diagram plots, and an adaptive policy hook—
+  without breaking existing behavior.
+
+  Plan
+
+  - Add plotting helpers for real layer quantization CSVs (loss vs R, robustness vs sigma).
+  - Add plotting for phase_diagram.csv from ExpB grid (heatmaps per weight scale).
+  - Add an adaptive policy override (sigma-threshold n_low/n_high) to reuse in ExpB noise/grid, keeping defaults intact.
+  - Re-run required sanity/smoke commands.
+
+  Edits
+
+  - src/wdit/quantization_lab.py (unchanged this round but used by plots): helper already quantizes real weights and reports
+    success_rate/loss_delta/rcp.
+  - experiments/exp_b_noise_breakdown.py: adaptive override hook; compute_adaptive_n now accepts sigma_threshold, n_low, n_high. New
+    CLI flags --adaptive_sigma_threshold, --adaptive_n_low, --adaptive_n_high. Defaults keep existing heuristic.
+      - Adaptive path now: n_effective = compute_adaptive_n(..., sigma_threshold, n_low, n_high).
+  - experiments/exp_b_weight_noise_grid.py: added adaptive override flags; choose_effective uses the threshold policy when provided,
+    else the old heuristic. Added phase_diagram.csv earlier still intact.
+  - analysis/plot_real_layer_quant.py: new plotter for real_layer_quant.csv. Produces:
+      - real_layer_loss_vs_R_sigma*.png → loss_delta vs R_effective at fixed sigma, split by mode.
+      - real_layer_success_vs_sigma_R*.png → success_rate vs sigma at fixed R_effective, split by mode.
+  - analysis/plot_phase_diagram.py: new plotter for phase_diagram.csv (from ExpB grid). For each weight_scale and mode:
+      - phase_success_ws*_mode.png (success_rate heatmap sigma×R_effective)
+      - phase_labels_ws*_mode.png (phase_label heatmap with fail/edge/good).
+  - experiments/adaptive_policy_search.py: unchanged but pairs with the new adaptive override flags.
+
+  Commands
+
+  - python3 -m py_compile run_phase1.py run_phase2.py experiments/*.py analysis/*.py src/wdit/*.py tests/*.py
+  - python3 tests/test_no_pandas_imports.py
+  - rm -rf results && python3 tests/smoke_phase1_8.py
+  - rm -rf results && python3 tests/smoke_phase2_scaffold.py
+  - rm -rf results && python3 run_phase2.py --smoke --run_expB_grid --binary_force_R2
+  - Real weights quant lab:
+
+    python3 experiments/exp_real_layer_quant.py --weights_npz your_layer.npz --mode wbit --R 5 --sigma_list 0.0 0.2 0.4 --trials
+  20 --print_metrics
+    python3 analysis/plot_real_layer_quant.py --input_csv results/phase2/real_layer_quant.csv
+  - Phase diagrams:
+
+    python3 experiments/exp_b_weight_noise_grid.py --mode wbit --R_values 3 5 7 9 --trials 10
+    python3 analysis/plot_phase_diagram.py --input_csv results/phase2/wbit/expB_grid/phase_diagram.csv --mode wbit
+  - Adaptive policy override (plugging a sigma-threshold policy back into adaptive runs):
+
+    # Example: n=1 below 0.6, n=3 above
+    python3 experiments/exp_b_noise_breakdown.py --mode adaptive --adaptive_sigma_threshold 0.6 --adaptive_n_low 1 --adaptive_n_high
+  3
+    python3 experiments/exp_b_weight_noise_grid.py --mode adaptive --adaptive_sigma_threshold 0.6 --adaptive_n_low 1
+  --adaptive_n_high 3
+    Use experiments/adaptive_policy_search.py to grid-search thresholds/n_high, then feed the chosen parameters via the flags above.
+
+  Notes / future hooks
+
+  - The adaptive override is opt-in; defaults remain the previous heuristic. We can formalize “adaptive_policy_v1” by wiring a policy
+    file/ID, but the flags cover immediate testing.
+  - Plots use matplotlib only; no pandas introduced. Heatmaps assume regular sigma/R grids; missing cells render as blanks.
+  - For the “real weights” story, export W and x_batch from a small trained model to .npz and run the quant lab + plots to get
+    loss_delta vs R and robustness curves.

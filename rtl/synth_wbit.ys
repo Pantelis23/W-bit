@@ -1,0 +1,23 @@
+# Yosys Synthesis Script for W-bit Accelerator
+
+# Read SystemVerilog files
+read_verilog -sv wbit_if.sv
+read_verilog -sv wbit_update_engine.sv
+read_verilog -sv wbit_tile.sv
+read_verilog -sv wbit_accelerator.sv
+read_verilog -sv wbit_top.sv
+
+# Hierarchy check
+hierarchy -top wbit_top
+
+# High-level synthesis
+proc; opt; fsm; opt; memory; opt
+
+# Mapping to internal cell library
+techmap; opt
+
+# Report estimates
+stat
+
+# Cleanup
+clean
