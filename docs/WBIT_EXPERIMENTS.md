@@ -1,6 +1,6 @@
 # w-bit Experiment Protocols v3.0
 
-This document defines the reproducible study specifications for verifying the w-bit architecture (historical filenames use "w-dit"). All experiments utilize the `AnalogWDitNetwork` engine to ensure physical realism.
+This document defines the reproducible study specifications for verifying the w-bit architecture (historical filenames use "w-bit"). All experiments utilize the `AnalogWDitNetwork` engine to ensure physical realism.
 
 ## 1. Unifying Metric
 **Metric:** Relaxation Cost Proxy (RCP)
@@ -26,14 +26,14 @@ This document defines the reproducible study specifications for verifying the w-
 ### 2.3 Metrics
 *   **Success Rate:** % of trials where a valid path is formed from $(0,0) \to (9,9)$.
 *   **Convergence Latency ($\tau_{99}$):** Steps required for path cells to reach >0.99 probability.
-*   **Baseline:** Standard A* algorithm (Software). Comparison is heuristic: w-dit "settling steps" vs A* "visited nodes".
+*   **Baseline:** Standard A* algorithm (Software). Comparison is heuristic: w-bit "settling steps" vs A* "visited nodes".
 
 ### 2.4 Expected Failure Modes
 *   **Local Minima:** "Dead ends" (Box canyons) where the gradient field cannot guide the packet out without lookahead.
 
 ## 3. Experiment B: Noise Robustness (Gating)
 
-**Objective:** Determine the breakdown point of w-dit logic under signal noise.
+**Objective:** Determine the breakdown point of w-bit logic under signal noise.
 
 ### 3.1 Setup
 *   **Topology:** 1 Control Cell (C), 1 Data Cell (D), 2 Output Cells (O1, O2).

@@ -46,7 +46,7 @@ def run_grid_router():
     
     # We won't use pairwise weights for this demo (too complex to hand-code flow dynamics).
     # Instead, we will use the "Local Preference" (Theta) to visualize the POTENTIAL FIELD.
-    # In a real w-dit chip, this potential would propagate via interactions.
+    # In a real w-bit chip, this potential would propagate via interactions.
     # Here, we pre-calculate the "smell" of the target.
     
     # Simple BFS to find distance to target
@@ -63,7 +63,7 @@ def run_grid_router():
                     grid_dist[ny][nx] = d + 1
                     queue.append((nx, ny, d+1))
                     
-    # Now encode this "Gradient" into the w-dit weights
+    # Now encode this "Gradient" into the w-bit weights
     for y in range(H):
         for x in range(W):
             cell_id = idx(x, y)

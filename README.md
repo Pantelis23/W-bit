@@ -1,6 +1,6 @@
 # w-bit Phase 1 Validation
 
-This directory contains the reproducible simulation suite for the w-bit architecture (older docs may say "w-dit"—same project).
+This directory contains the reproducible simulation suite for the w-bit architecture (older docs may say "w-bit"—same project).
 
 ## Project Identity
 

@@ -23,7 +23,7 @@ def run_phase1():
         args.expC_out = os.path.join(base, 'expC')
         args.report_out = os.path.join(base, 'phase1_report.csv')
 
-    print("=== w-dit Phase 1 Validation Runner ===")
+    print("=== w-bit Phase 1 Validation Runner ===")
     
     python_exe = sys.executable
     base_dir = os.path.dirname(os.path.abspath(__file__))

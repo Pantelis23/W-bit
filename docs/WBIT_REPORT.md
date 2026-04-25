@@ -2,11 +2,11 @@
 
 **Status:** Draft (Internal)  
 **Date:** December 2025  
-**Subject:** Weight-Defined Non-Binary Base Primitive (w-bit; historical "w-dit" naming)  
+**Subject:** Weight-Defined Non-Binary Base Primitive (w-bit; historical "w-bit" naming)  
 
 ## 1. Executive Summary
 
-The **w-bit** is a non-binary computing primitive that substitutes boolean algebra with **R-ary energy minimization**. Unlike von Neumann architectures that rely on high-speed serial switching of binary states, w-bit relies on the parallel relaxation of a multi-valued compatibility network. Older drafts may say “w-dit”; it refers to the same concept.
+The **w-bit** is a non-binary computing primitive that substitutes boolean algebra with **R-ary energy minimization**. Unlike von Neumann architectures that rely on high-speed serial switching of binary states, w-bit relies on the parallel relaxation of a multi-valued compatibility network. Older drafts may say “w-bit”; it refers to the same concept.
 
 This work explores w-bit as a specialized substrate for domains requiring fluid connectivity rather than precise arithmetic. Simulations indicate that w-bit fabrics can implement compositional non-linear logic (e.g., XOR) and effective gradient-based routing.
 
@@ -14,7 +14,7 @@ The architecture is best positioned as a **Neuromorphic Interconnect** or **Appr
 
 ## 2. Formal Core
 
-A w-dit network is defined by a graph of $N$ cells, where each cell $i$ can exist in one of $R$ states.
+A w-bit network is defined by a graph of $N$ cells, where each cell $i$ can exist in one of $R$ states.
 
 ### 2.1 State Definition
 In the physical (analog) realization, the state of cell $i$ is a probability distribution vector $\mathbf{s}_i \in \mathbb{R}^R$:
@@ -52,7 +52,7 @@ Where $\alpha$ is the integration rate (simulating capacitance) and $\mathbf{\ep
 ## 4. Simulation Findings
 
 ### 4.1 Routing Efficiency (Experiment A)
-A 10x10 w-dit grid successfully implemented a "Liquid Router."
+A 10x10 w-bit grid successfully implemented a "Liquid Router."
 *   **Mechanism:** Weights encoded a gradient potential field toward a target $T$.
 *   **Result:** Packets navigated obstacles without explicit path planning algorithms.
 *   **Latency:** Field stabilization required ~20 relaxation steps.
@@ -67,7 +67,7 @@ An analog gating circuit (Transistor equivalent) was tested under high Gaussian 
 The architecture solved the XOR problem (non-linearly separable).
 *   **Constraint:** Required $\ge 2$ hidden cells to form intermediate energy barriers.
 *   **Performance:** Genetic optimization converged to $MSE < 0.02$.
-*   **Conclusion:** Simulations demonstrate compositional non-linear decision capability in small w-dit networks, indicating the substrate can implement complex R-ary logic when sufficient intermediate cells are available.
+*   **Conclusion:** Simulations demonstrate compositional non-linear decision capability in small w-bit networks, indicating the substrate can implement complex R-ary logic when sufficient intermediate cells are available.
 
 ## 5. Metric: Relaxation Cost Proxy (RCP)
 
