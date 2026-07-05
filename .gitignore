@@ -37,9 +37,9 @@ htmlcov/
 *.swo
 
 # Large Artifacts
-*.zip
+# Note: result data is published as plain CSVs under results/ (not zipped).
 *.vcd
 *.parquet
-*.pt
+*.pt          # trained model weights (660 MB in checkpoints/) — use LFS/releases to publish
 obj_dir/
 checkpoints/

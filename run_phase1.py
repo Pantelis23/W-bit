@@ -40,12 +40,13 @@ def run_phase1():
     expB_trials = '100'
     expB_R = '3'
 
-    expC_trials = '10'
+    expC_trials = '6'
     expC_R = '2'
-    expC_population = None
-    expC_elite_k = None
-    expC_restarts = None
-    expC_max_epochs = None
+    # XOR needs a real search population; population=1 does not converge.
+    expC_population = '30'
+    expC_elite_k = '6'
+    expC_restarts = '4'
+    expC_max_epochs = '1000'
 
     expB_grid_trials = '50'
 
@@ -59,10 +60,10 @@ def run_phase1():
         expB_trials = '5'
 
         expC_trials = '3'
-        expC_population = '2'
-        expC_elite_k = '1'
-        expC_restarts = '1'
-        expC_max_epochs = '300'
+        expC_population = '12'
+        expC_elite_k = '3'
+        expC_restarts = '2'
+        expC_max_epochs = '400'
 
         expB_grid_trials = '5'
 
