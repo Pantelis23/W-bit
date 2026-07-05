@@ -1,6 +1,6 @@
 # w-bit Experiment Protocols v3.0
 
-This document defines the reproducible study specifications for verifying the w-bit architecture (historical filenames use "w-bit"). All experiments utilize the `AnalogWDitNetwork` engine to ensure physical realism.
+This document defines the reproducible study specifications for verifying the w-bit architecture. All experiments utilize the `AnalogWbitNetwork` engine to ensure physical realism.
 
 ## 1. Unifying Metric
 **Metric:** Relaxation Cost Proxy (RCP)

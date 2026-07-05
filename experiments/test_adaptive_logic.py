@@ -2,7 +2,7 @@ import sys
 import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
-from wbit.level3_adaptive_network import Level3WbitNetwork
+from wbit.level3_wbit_network import Level3WbitNetwork
 
 def run_adaptive_logic_test():
     print("=== LEVEL 3 W-BIT TEST: Adaptive Logic / Variable Reffective ===")

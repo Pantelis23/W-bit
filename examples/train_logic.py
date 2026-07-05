@@ -6,7 +6,7 @@ import random
 # Add parent directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from wbit import WDitNetwork
+from wbit import WbitNetwork
 
 def evaluate(net, inputs, targets, input_indices, output_index):
     correct = 0
@@ -57,7 +57,7 @@ def train_max_gate():
             targets.append(max(a, b))
             
     # Initialize Network
-    best_net = WDitNetwork(3, R)
+    best_net = WbitNetwork(3, R)
     # Initialize zero interactions for A->Y and B->Y
     best_net.set_interaction_weights(Y, A, [[0.0]*R for _ in range(R)])
     best_net.set_interaction_weights(Y, B, [[0.0]*R for _ in range(R)])

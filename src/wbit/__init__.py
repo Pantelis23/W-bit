@@ -1,1 +1,1 @@
-from .network import WDitNetwork
+from .network import WbitNetwork

@@ -1,7 +1,7 @@
 import random
 import math
 
-class WDitNetwork:
+class WbitNetwork:
     def __init__(self, num_cells, R):
         """
         Initialize the W-bit Network (Pure Python).

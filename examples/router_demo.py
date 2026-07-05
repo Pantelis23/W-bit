@@ -5,7 +5,7 @@ import random
 # Add parent directory to path to import wbit
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from wbit import WDitNetwork
+from wbit import WbitNetwork
 
 def zeros(rows, cols):
     return [[0.0] * cols for _ in range(rows)]
@@ -22,7 +22,7 @@ def run_router_demo():
     
     # R=3 (0=Null, 1=DataA, 2=DataB)
     R = 3
-    net = WDitNetwork(num_cells=4, R=R)
+    net = WbitNetwork(num_cells=4, R=R)
     
     # Indices
     C, D, O1, O2 = 0, 1, 2, 3
